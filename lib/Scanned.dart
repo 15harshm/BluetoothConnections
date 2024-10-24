@@ -31,18 +31,35 @@ class _ScannedState extends State<Scanned> {
                         itemCount: controller.scannedDevices.length,
                         itemBuilder: (context, index) {
                           final data = controller.scannedDevices[index];
+
+                          // Check advertisement data or fall back to the device ID
+                          String deviceName = data.advertisementData.localName.isNotEmpty
+                              ? data.advertisementData.localName
+                              : (data.device.name.isNotEmpty ? data.device.name : 'Unnamed Device');
+
+                          if (deviceName == 'Unnamed Device') {
+                            // Use the ID if no name is provided
+                            deviceName = 'Device ${data.device.id.id}';
+                          }
+
                           return Card(
                             elevation: 2,
                             child: ListTile(
-                              title: Text(data.device.name.isEmpty ? 'Unknown Device' : data.device.name),
-                              subtitle: Text(data.device.id.id),
-                              trailing: Text(data.rssi.toString()),
+                              title: Text(deviceName),
+                              subtitle: Text("ID: ${data.device.id.id}"),
+                              trailing: Text("RSSI: ${data.rssi}"),
+
+                              // Connect to the device when tapped
+                              onTap: () async {
+                                print("Connecting to device: $deviceName");
+                                await controller.connectToDevice(data.device);
+                              },
                             ),
                           );
                         },
                       );
                     } else {
-                      return const Center(child: Text("No Device Found"));
+                      return const Center(child: Text("No Devices Found"));
                     }
                   }),
                 ),
