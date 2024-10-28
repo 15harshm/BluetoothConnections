@@ -5,39 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 class BleController extends GetxController {
   var scannedDevices = <ScanResult>[].obs;
 
-  // Method to handle Bluetooth device connection
-  Future<void> connectToDevice(BluetoothDevice device) async {
-    print("Attempting to connect to device: ${device.name} (${device.id})");
-
-    try {
-      // Check if the device is already connected
-      var connectionState = await device.state.first;
-      if (connectionState == BluetoothDeviceState.connected) {
-        print("Device already connected: ${device.name}");
-        return;
-      }
-
-      // Attempt to connect to the device with a longer timeout
-      await device.connect(timeout: const Duration(seconds: 30));
-      print("Connection attempt initiated...");
-
-      // Listen for connection state changes
-      device.state.listen((connectionState) {
-        if (connectionState == BluetoothDeviceState.connecting) {
-          print("Device connecting: ${device.name}");
-        } else if (connectionState == BluetoothDeviceState.connected) {
-          print("Device connected: ${device.name}");
-        } else if (connectionState == BluetoothDeviceState.disconnected) {
-          print("Device disconnected: ${device.name}");
-        } else if (connectionState == BluetoothDeviceState.disconnecting) {
-          print("Device is disconnecting: ${device.name}");
-        }
-      });
-    } catch (e) {
-      print("Failed to connect: $e");
-    }
-  }
-
+  // Check and request permissions
   Future<void> checkAndRequestPermissions() async {
     var bluetoothScanStatus = await Permission.bluetoothScan.request();
     var bluetoothConnectStatus = await Permission.bluetoothConnect.request();
@@ -49,10 +17,6 @@ class BleController extends GetxController {
       print("All required permissions granted.");
     } else {
       print("Permissions not granted, scanning cannot proceed.");
-      if (bluetoothScanStatus.isPermanentlyDenied || locationStatus.isPermanentlyDenied) {
-        await openAppSettings();
-      }
-      return;
     }
   }
 
@@ -63,8 +27,7 @@ class BleController extends GetxController {
       print("Bluetooth was off, turning it on...");
     }
 
-    var locationServiceEnabled = await Permission.locationWhenInUse.serviceStatus.isEnabled;
-    if (!locationServiceEnabled) {
+    if (!(await Permission.locationWhenInUse.serviceStatus.isEnabled)) {
       Get.snackbar(
         'Location Required',
         'Please enable location services to scan for BLE devices.',
@@ -78,24 +41,65 @@ class BleController extends GetxController {
     await checkAndRequestPermissions();
     await ensureBluetoothAndLocation();
 
+    if (!(await Permission.locationWhenInUse.serviceStatus.isEnabled)) {
+      print("Location services are still off, cannot scan.");
+      return;
+    }
+
     scannedDevices.clear();
     print("Starting scan...");
-
-    FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
+    FlutterBluePlus.startScan(timeout: const Duration(seconds: 20));
 
     FlutterBluePlus.scanResults.listen((results) {
-      print("Scan results received: ${results.length} devices found.");
       for (var result in results) {
-        print("Device: ${result.device.name} - ${result.device.id}");
-        if (!scannedDevices.any((device) => device.device.id == result.device.id)) {
+        if (!scannedDevices.any((device) => device.device.remoteId == result.device.remoteId)) {
           scannedDevices.add(result);
         }
       }
-      update(); // Notify UI about the change
+      update();
     });
 
-    await Future.delayed(const Duration(seconds: 10));
+    await Future.delayed(const Duration(seconds: 20));
     FlutterBluePlus.stopScan();
     print("Scanning stopped");
   }
+
+  // Method to connect to a selected device
+  Future<void> connectToDevice(BluetoothDevice device) async {
+    print("Attempting to connect to device: ${device.platformName} (${device.remoteId})");
+
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      try {
+        // Retry connection up to 3 times
+        print("Connection attempt #$attempt...");
+        await Future.delayed(const Duration(seconds: 2)); // Short delay before each attempt
+
+        await device.connect(timeout: const Duration(seconds: 60));
+        print("Connection attempt initiated...");
+
+        device.connectionState.listen((state) {
+          if (state == BluetoothConnectionState.connected) {
+            print("Device connected: ${device.platformName}");
+          } else if (state == BluetoothConnectionState.disconnected) {
+            print("Device disconnected: ${device.platformName}");
+          }
+        });
+        break; // Exit loop if connection is successful
+      } catch (e) {
+        print("Connection attempt #$attempt failed: $e");
+
+        if (attempt == 3) {
+          print("Failed to connect after multiple attempts.");
+          // Optional: Reset Bluetooth adapter if multiple attempts fail
+          await resetBluetoothAdapter();
+        }
+      }
+    }
+  }
+  Future<void> resetBluetoothAdapter() async {
+    FlutterBluePlus.turnOff();
+    await Future.delayed(Duration(seconds: 2)); // Wait briefly for adapter to reset
+    FlutterBluePlus.turnOn();
+  }
+
 }
