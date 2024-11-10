@@ -37,6 +37,7 @@ dependencies:
   cupertino_icons: ^1.0.2
   sqflite:
   path:
+  socket_io_client:
   flutter_blue_plus:
   get:
   permission_handler:
